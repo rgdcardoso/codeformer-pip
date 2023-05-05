@@ -2,15 +2,17 @@ import os
 
 import cv2
 import torch
+import numpy
 from torchvision.transforms.functional import normalize
 
 from codeformer.basicsr.archs.rrdbnet_arch import RRDBNet
-from codeformer.basicsr.utils import img2tensor, imwrite, tensor2img
+from codeformer.basicsr.utils import img2tensor, tensor2img
 from codeformer.basicsr.utils.download_util import load_file_from_url
 from codeformer.basicsr.utils.realesrgan_utils import RealESRGANer
 from codeformer.basicsr.utils.registry import ARCH_REGISTRY
 from codeformer.facelib.utils.face_restoration_helper import FaceRestoreHelper
-from codeformer.facelib.utils.misc import is_gray
+
+from PIL import Image
 
 pretrain_model_url = {
     "codeformer": "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth",
@@ -36,12 +38,6 @@ if not os.path.exists("CodeFormer/weights/realesrgan/RealESRGAN_x2plus.pth"):
     load_file_from_url(
         url=pretrain_model_url["realesrgan"], model_dir="CodeFormer/weights/realesrgan", progress=True, file_name=None
     )
-
-
-def imread(img_path):
-    img = cv2.imread(img_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return img
 
 
 # set enhancer with RealESRGAN
@@ -84,7 +80,7 @@ codeformer_net.eval()
 os.makedirs("output", exist_ok=True)
 
 
-def inference_app(image, background_enhance, face_upsample, upscale, codeformer_fidelity):
+def inference_app(image: Image, background_enhance: bool, face_upsample: bool, upscale: int, codeformer_fidelity: float) -> Image:
     # take the default setting for the demo
     has_aligned = False
     only_center_face = False
@@ -92,7 +88,7 @@ def inference_app(image, background_enhance, face_upsample, upscale, codeformer_
     detection_model = "retinaface_resnet50"
     print("Inp:", image, background_enhance, face_upsample, upscale, codeformer_fidelity)
 
-    img = cv2.imread(str(image), cv2.IMREAD_COLOR)
+    img = cv2.imread(numpy.array(image), cv2.IMREAD_COLOR)
     print("\timage size:", img.shape)
 
     upscale = int(upscale)  # convert type to int
@@ -110,29 +106,24 @@ def inference_app(image, background_enhance, face_upsample, upscale, codeformer_
         face_size=512,
         crop_ratio=(1, 1),
         det_model=detection_model,
-        save_ext="png",
         use_parse=True,
         device=device,
     )
     bg_upsampler = upsampler if background_enhance else None
     face_upsampler = upsampler if face_upsample else None
 
-    if has_aligned:
-        # the input faces are already cropped and aligned
-        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_LINEAR)
-        face_helper.is_gray = is_gray(img, threshold=5)
-        if face_helper.is_gray:
-            print("\tgrayscale input: True")
-        face_helper.cropped_faces = [img]
-    else:
-        face_helper.read_image(img)
-        # get face landmarks for each face
-        num_det_faces = face_helper.get_face_landmarks_5(
-            only_center_face=only_center_face, resize=640, eye_dist_threshold=5
-        )
-        print(f"\tdetect {num_det_faces} faces")
-        # align and warp each face
-        face_helper.align_warp_face()
+    face_helper.read_image(img)
+    # get face landmarks for each face
+    num_det_faces = face_helper.get_face_landmarks_5(
+        only_center_face=only_center_face, resize=640, eye_dist_threshold=5
+    )
+
+    if num_det_faces == 0:
+        return image
+
+    print(f"\tdetect {num_det_faces} faces")
+    # align and warp each face
+    face_helper.align_warp_face()
 
     # face restoration for each cropped face
     for idx, cropped_face in enumerate(face_helper.cropped_faces):
@@ -173,7 +164,4 @@ def inference_app(image, background_enhance, face_upsample, upscale, codeformer_
         else:
             restored_img = face_helper.paste_faces_to_input_image(upsample_img=bg_img, draw_box=draw_box)
 
-    # save restored img
-    save_path = f"output/out.png"
-    imwrite(restored_img, str(save_path))
-    return save_path
+    return Image.fromarray(restored_img)
