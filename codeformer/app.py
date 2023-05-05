@@ -88,7 +88,7 @@ def inference_app(image: Image, background_enhance: bool, face_upsample: bool, u
     detection_model = "retinaface_resnet50"
     print("Inp:", image, background_enhance, face_upsample, upscale, codeformer_fidelity)
 
-    img = cv2.imread(numpy.array(image), cv2.IMREAD_COLOR)
+    img = cv2.cvtColor(numpy.array(image), cv2.IMREAD_COLOR)
     print("\timage size:", img.shape)
 
     upscale = int(upscale)  # convert type to int
